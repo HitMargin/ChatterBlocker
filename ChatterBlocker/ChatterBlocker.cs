@@ -20,6 +20,7 @@ namespace ChatterBlocker
 
             if (_lastKeyDownTimeNs.TryGetValue(vk, out long lastTime))
             {
+                if (eventTimeNs == lastTime) return false;      // same event already accepted — don't re-block
                 if (eventTimeNs - lastTime < intervalNs)
                 {
                     _blockedDownKeys.Add(vk);

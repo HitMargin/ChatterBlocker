@@ -1,5 +1,4 @@
 using HarmonyLib;
-using September;
 using SkyHook;
 using System;
 using System.Collections.Generic;
@@ -7,6 +6,7 @@ using System.Linq;
 using System.Reflection;
 using System.Reflection.Emit;
 using UnityEngine;
+using September;
 
 namespace ChatterBlocker.Patches
 {
@@ -27,24 +27,22 @@ namespace ChatterBlocker.Patches
         }
 
         [HarmonyTranspiler]
-        internal static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
+        internal static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions, ILGenerator generator)
         {
-            try
-            {
-                return Transpile(instructions);
-            }
+            try { return Transpile(instructions, generator); }
             catch (Exception ex)
             {
-                Debug.LogError($"[ChatterBlocker] Transpiler exception: {ex}");
+                Debug.LogError($"[CB] Transpiler exception: {ex}");
                 return instructions;
             }
         }
 
-        private static IEnumerable<CodeInstruction> Transpile(IEnumerable<CodeInstruction> instructions)
+        private static IEnumerable<CodeInstruction> Transpile(IEnumerable<CodeInstruction> instructions, ILGenerator generator)
         {
             var codes = instructions.ToList();
             var keyMaskField = typeof(AsyncInputManager).GetField("keyMask");
 
+            // 1. Locate loop head (TryDequeue call)
             int loopHead = -1;
             for (int i = 0; i < codes.Count - 4; i++)
             {
@@ -65,12 +63,9 @@ namespace ChatterBlocker.Patches
                     if (loopHead >= 0) break;
                 }
             }
-            if (loopHead < 0)
-            {
-                Debug.LogWarning("[CB] Loop head not found.");
-                return codes;
-            }
+            if (loopHead < 0) { Debug.LogWarning("[CB] Loop head not found."); return codes; }
 
+            // 2. Locate insertion point (before Contains(keyMask))
             int insert = -1;
             for (int i = 0; i < codes.Count - 2; i++)
             {
@@ -84,65 +79,73 @@ namespace ChatterBlocker.Patches
                     break;
                 }
             }
-            if (insert < 0)
-            {
-                Debug.LogWarning("[CB] Insert point not found.");
-                return codes;
-            }
+            if (insert < 0) { Debug.LogWarning("[CB] Insert point not found."); return codes; }
 
-            int elementLocal = -1;
-            int timeLocal = -1;
+            // 3. Locate element and priority locals (scan backwards from TryDequeue)
+            object elementLocalOperand = null;
+            object priorityLocalOperand = null;
 
+            int tryDequeueIdx = -1;
             for (int i = loopHead; i < insert; i++)
             {
                 if (codes[i].opcode == OpCodes.Callvirt &&
                     (codes[i].operand as MethodInfo)?.Name == "TryDequeue")
                 {
-                    for (int j = i + 1; j < Math.Min(i + 5, codes.Count); j++)
-                    {
-                        if (codes[j].opcode == OpCodes.Stloc || codes[j].opcode == OpCodes.Stloc_S)
-                        {
-                            elementLocal = (codes[j].operand is LocalBuilder lb) ? lb.LocalIndex : (int)codes[j].operand;
-                            break;
-                        }
-                    }
+                    tryDequeueIdx = i;
+                    break;
                 }
-
-                if (codes[i].opcode == OpCodes.Callvirt &&
-                    (codes[i].operand as MethodInfo)?.Name == "GetTimeInTicks")
-                {
-                    // 该调用返回 long/ulong，之后会有 stloc
-                    for (int j = i + 1; j < Math.Min(i + 5, codes.Count); j++)
-                    {
-                        if (codes[j].opcode == OpCodes.Stloc || codes[j].opcode == OpCodes.Stloc_S)
-                        {
-                            timeLocal = (codes[j].operand is LocalBuilder lb) ? lb.LocalIndex : (int)codes[j].operand;
-                            break;
-                        }
-                    }
-                }
-
-                if (elementLocal >= 0 && timeLocal >= 0) break;
             }
 
-            if (elementLocal < 0 || timeLocal < 0)
+            if (tryDequeueIdx >= 0)
             {
-                Debug.LogWarning($"[CB] Locals not found: element={elementLocal}, time={timeLocal}");
+                int ldlocaCount = 0;
+                // Walk backward from the call: first ldloca encountered = priority (2nd arg), second = element (1st arg)
+                for (int j = tryDequeueIdx - 1; j >= loopHead && ldlocaCount < 2; j--)
+                {
+                    if (codes[j].opcode == OpCodes.Ldloca || codes[j].opcode == OpCodes.Ldloca_S)
+                    {
+                        if (ldlocaCount == 0)
+                            priorityLocalOperand = codes[j].operand;   // closest to call = priority
+                        else if (ldlocaCount == 1)
+                            elementLocalOperand = codes[j].operand;    // further back = element
+                        ldlocaCount++;
+                    }
+                }
+            }
+
+            if (elementLocalOperand == null || priorityLocalOperand == null)
+            {
+                Debug.LogWarning($"[CB] Locals not found: element={elementLocalOperand}, priority={priorityLocalOperand}");
                 return codes;
             }
 
+            // (Optional) verify types
+            // Debug.Log($"[CB] element type: {(elementLocalOperand as LocalBuilder)?.LocalType}, priority type: {(priorityLocalOperand as LocalBuilder)?.LocalType}");
+
+            // 4. Create a valid label for the loop head using ILGenerator
+            Label loopLabel;
+            if (codes[loopHead].labels.Count > 0)
+                loopLabel = codes[loopHead].labels[0];
+            else
+            {
+                loopLabel = generator.DefineLabel();
+                codes[loopHead].labels.Add(loopLabel);
+            }
+
+            // 5. Inject IL: use Ldloca for struct (element), load priority as value, convert, call ShouldBlock
             var injected = new List<CodeInstruction>
             {
-                new CodeInstruction(OpCodes.Ldloc, elementLocal),
+                new CodeInstruction(OpCodes.Ldloca, elementLocalOperand),   // address of SkyHookEvent
                 new CodeInstruction(OpCodes.Ldfld, _skyHookEventKeyField),
-                new CodeInstruction(OpCodes.Ldloc, timeLocal),
-                new CodeInstruction(OpCodes.Conv_I8),
-                new CodeInstruction(OpCodes.Ldc_I8, 100L),
+                new CodeInstruction(OpCodes.Ldloc, priorityLocalOperand),   // ulong priority
+                new CodeInstruction(OpCodes.Conv_I8),                       // ulong -> long
+                new CodeInstruction(OpCodes.Ldc_I8, 100L),                  // ticks to ns (1 tick = 100 ns)
                 new CodeInstruction(OpCodes.Mul),
                 new CodeInstruction(OpCodes.Call, _shouldBlockMethod),
-                new CodeInstruction(OpCodes.Brtrue, codes[loopHead].labels[0])
+                new CodeInstruction(OpCodes.Brtrue, loopLabel)              // if blocked, discard key
             };
 
+            // 6. Insert at the found position
             var result = new List<CodeInstruction>();
             for (int i = 0; i < codes.Count; i++)
             {
@@ -151,7 +154,7 @@ namespace ChatterBlocker.Patches
                 result.Add(codes[i]);
             }
 
-            Debug.Log("[ChatterBlocker] Transpiler applied successfully.");
+            Debug.Log("[CB] Transpiler applied successfully.");
             return result;
         }
     }
