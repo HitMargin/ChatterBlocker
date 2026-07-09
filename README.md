@@ -4,7 +4,7 @@ A UnityModManager mod for *A Dance of Fire and Ice* (ADOFAI) that blocks keyboar
 
 ## Features
 
-- **Configurable debounce interval** — adjust the minimum time between key events (0–9999ms)
+- **Configurable debounce interval** — adjust the minimum time between key events (0–2000)
 - **Async & sync input support** — works with both SkyHook (async) and Unity Input (sync) paths
 - **In-game settings UI** — integrated into the pause menu's Advanced tab
 - **Multi-language** — supports all 14 game languages
