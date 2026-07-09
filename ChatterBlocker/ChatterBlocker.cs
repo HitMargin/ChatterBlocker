@@ -16,11 +16,14 @@ namespace ChatterBlocker
             int intervalMs = Main.ChatterBlockInterval;
             if (intervalMs <= 0) return false;
 
-            long intervalNs = (long)intervalMs * 1_000_000L;
+            // Idempotence: If this button has already been accepted with the same timestamp, just let it through.
+            if (_lastKeyDownTimeNs.TryGetValue(vk, out long lastTime) && eventTimeNs == lastTime)
+                return false;
 
-            if (_lastKeyDownTimeNs.TryGetValue(vk, out long lastTime))
+            long intervalNs = intervalMs * 1_000_000L;
+
+            if (_lastKeyDownTimeNs.TryGetValue(vk, out lastTime))
             {
-                if (eventTimeNs == lastTime) return false;      // same event already accepted — don't re-block
                 if (eventTimeNs - lastTime < intervalNs)
                 {
                     _blockedDownKeys.Add(vk);
@@ -29,6 +32,7 @@ namespace ChatterBlocker
             }
 
             _lastKeyDownTimeNs[vk] = eventTimeNs;
+            _keyWasReleased[vk] = false;
             return false;
         }
 
@@ -46,15 +50,6 @@ namespace ChatterBlocker
         {
             int intervalMs = Main.ChatterBlockInterval;
             if (intervalMs <= 0) return false;
-
-            // 异步输入由 UpdateInput Transpiler 处理，同步路径不干涉
-            var kb = RDInput.asyncKeyboard;
-            var kbL = RDInput.asyncKeyboardLeft;
-            var kbR = RDInput.asyncKeyboardRight;
-            if ((kb != null && kb.isActive)
-                || (kbL != null && kbL.isActive)
-                || (kbR != null && kbR.isActive))
-                return false;
 
             long nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
