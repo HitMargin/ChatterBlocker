@@ -1,0 +1,9 @@
+{
+  "Id": "ChatterBlocker",
+  "DisplayName": "Chatter Blocker",
+  "Author": "HitMargin",
+  "Version": "1.0.0",
+  "Requirements": [],
+  "AssemblyName": "ChatterBlocker.dll",
+  "EntryMethod": "ChatterBlocker.Main.Load"
+}
