@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Reflection.Emit;
+using System.Threading.Tasks;
 using HarmonyLib;
 using UnityEngine;
 
@@ -17,6 +18,7 @@ internal static class PatchManager
     private static readonly Dictionary<string, FieldInfo> _fieldCache = new();
     private static readonly Dictionary<Type, PatchRegistration> _registeredPatches = new();
     private static readonly HashSet<Type> _appliedPatches = new();
+    private static readonly HashSet<Type> _failedPatches = new();
     private static readonly List<MethodInfo> _appliedManualPatches = new();
     private static readonly object _lock = new();
 
@@ -28,6 +30,7 @@ internal static class PatchManager
             _harmonyId = harmony.Id;
             _registeredPatches.Clear();
             _appliedPatches.Clear();
+            _failedPatches.Clear();
             _delegateCache.Clear();
             _methodCache.Clear();
             _fieldCache.Clear();
@@ -40,6 +43,7 @@ internal static class PatchManager
         {
             _registeredPatches[patchType] = new PatchRegistration(patchType, toggle);
         }
+        Debug.Log($"[PatchManager] Registered patch: {patchType.Name}");
     }
 
     public static void RegisterPatches(Func<bool> toggle, params Type[] patchTypes)
@@ -48,8 +52,17 @@ internal static class PatchManager
             RegisterPatch(patchType, toggle);
     }
 
-    /// <summary>Register a manual Harmony prefix patch for a dynamically-resolved target method.</summary>
-    public static void RegisterManualPrefix(MethodInfo targetMethod, MethodInfo prefixMethod, Func<bool> toggle, string id)
+    public static void RegisterLazyPatches(Func<bool> trigger, params Type[] patchTypes)
+    {
+        lock (_lock)
+        {
+            foreach (var patchType in patchTypes)
+                _registeredPatches[patchType] = new PatchRegistration(patchType, () => true, trigger);
+        }
+        Debug.Log($"[PatchManager] Registered lazy patches: {string.Join(", ", patchTypes.Select(t => t.Name))}");
+    }
+
+    public static void RegisterManualPrefix(MethodInfo targetMethod, MethodInfo prefixMethod)
     {
         if (targetMethod == null || prefixMethod == null) return;
         lock (_lock)
@@ -60,8 +73,7 @@ internal static class PatchManager
         Debug.Log($"Applied manual prefix patch: {targetMethod.DeclaringType.Name}.{targetMethod.Name} -> {prefixMethod.Name}");
     }
 
-    /// <summary>Register a manual Harmony postfix patch for a dynamically-resolved target method.</summary>
-    public static void RegisterManualPatch(MethodInfo targetMethod, MethodInfo postfixMethod, Func<bool> toggle, string id)
+    public static void RegisterManualPatch(MethodInfo targetMethod, MethodInfo postfixMethod)
     {
         if (targetMethod == null || postfixMethod == null) return;
         lock (_lock)
@@ -81,6 +93,7 @@ internal static class PatchManager
             {
                 if (_appliedPatches.Contains(registration.PatchType)) continue;
                 if (!registration.IsEnabled()) continue;
+                if (registration.IsLazy) continue;
                 try
                 {
                     _harmony.CreateClassProcessor(registration.PatchType).Patch();
@@ -94,15 +107,84 @@ internal static class PatchManager
         }
     }
 
-    public static void RefreshPatches()
+    public static void ApplyAllAsync()
+    {
+        System.Threading.CancellationTokenSource cts;
+        lock (_lock)
+        {
+            if (_lazyPollCts != null) return;
+            cts = _lazyPollCts = new System.Threading.CancellationTokenSource();
+        }
+        _ = Task.Run(() => ApplyAllAsyncCore(cts));
+    }
+
+    private static async Task ApplyAllAsyncCore(System.Threading.CancellationTokenSource cts)
+    {
+        var token = cts.Token;
+        try
+        {
+            ApplyImmediatePatches();
+
+            while (!token.IsCancellationRequested)
+            {
+                if (ApplyLazyPatches())
+                    break;
+                await Task.Delay(100, token).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            Debug.LogError($"[PatchManager] Async patch failed: {ex}");
+        }
+        finally
+        {
+            lock (_lock)
+            {
+                if (_lazyPollCts == cts)
+                    _lazyPollCts = null;
+            }
+            cts.Dispose();
+        }
+    }
+
+    private static void ApplyImmediatePatches()
     {
         lock (_lock)
         {
             if (_harmony == null) return;
             foreach (var registration in _registeredPatches.Values)
             {
+                if (registration.IsLazy) continue;
+                if (_appliedPatches.Contains(registration.PatchType)) continue;
+                if (_failedPatches.Contains(registration.PatchType)) continue;
+                if (!registration.IsEnabled()) continue;
+                try
+                {
+                    _harmony.CreateClassProcessor(registration.PatchType).Patch();
+                    _appliedPatches.Add(registration.PatchType);
+                }
+                catch (Exception e)
+                {
+                    Debug.LogWarning($"Failed to apply patch {registration.PatchType.Name}: {e.Message}");
+                    _failedPatches.Add(registration.PatchType);
+                }
+            }
+        }
+    }
+
+    private static bool ApplyLazyPatches()
+    {
+        lock (_lock)
+        {
+            if (_harmony == null) return true;
+            bool allApplied = true;
+            foreach (var registration in _registeredPatches.Values)
+            {
+                if (!registration.IsLazy) continue;
+                if (_failedPatches.Contains(registration.PatchType)) continue;
                 bool isApplied = _appliedPatches.Contains(registration.PatchType);
-                bool shouldBeEnabled = registration.IsEnabled();
+                bool shouldBeEnabled = registration.IsEnabled() && registration.LazyTrigger();
                 if (shouldBeEnabled && !isApplied)
                 {
                     try
@@ -113,30 +195,33 @@ internal static class PatchManager
                     catch (Exception e)
                     {
                         Debug.LogWarning($"Failed to apply patch {registration.PatchType.Name}: {e.Message}");
+                        _failedPatches.Add(registration.PatchType);
                     }
                 }
-                else if (!shouldBeEnabled && isApplied)
-                {
-                    try
-                    {
-                        _harmony.CreateClassProcessor(registration.PatchType).Unpatch();
-                        _appliedPatches.Remove(registration.PatchType);
-                    }
-                    catch (Exception e)
-                    {
-                        Debug.LogWarning($"Failed to unpatch {registration.PatchType.Name}: {e.Message}");
-                    }
-                }
+                if (!_appliedPatches.Contains(registration.PatchType) && !_failedPatches.Contains(registration.PatchType))
+                    allApplied = false;
             }
+            return allApplied;
         }
     }
 
+    private static System.Threading.CancellationTokenSource _lazyPollCts;
+
     public static void UnpatchAll()
     {
+        System.Threading.CancellationTokenSource cts;
+        lock (_lock)
+        {
+            cts = _lazyPollCts;
+            _lazyPollCts = null;
+        }
+        cts?.Cancel();
+
         lock (_lock)
         {
             _harmony?.UnpatchAll(_harmonyId);
             _appliedPatches.Clear();
+            _failedPatches.Clear();
             _appliedManualPatches.Clear();
         }
     }
@@ -345,10 +430,13 @@ internal static class PatchManager
     {
         public Type PatchType { get; }
         public Func<bool> IsEnabled { get; }
-        public PatchRegistration(Type patchType, Func<bool> isEnabled)
+        public Func<bool> LazyTrigger { get; }
+        public bool IsLazy => LazyTrigger != null;
+        public PatchRegistration(Type patchType, Func<bool> isEnabled, Func<bool> lazyTrigger = null)
         {
             PatchType = patchType;
             IsEnabled = isEnabled;
+            LazyTrigger = lazyTrigger;
         }
     }
 }

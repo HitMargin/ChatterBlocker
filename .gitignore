@@ -1,3 +1,6 @@
 .vs/
 ChatterBlocker/bin/
 ChatterBlocker/obj/
+.vscode/
+build_output.txt
+build_exitcode.txt

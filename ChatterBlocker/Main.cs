@@ -34,16 +34,21 @@ public static class Main
         {
             var harmony = new Harmony(modEntry.Info.Id);
             PatchManager.Initialize(harmony);
+
             PatchManager.RegisterPatches(() => true,
+                typeof(Patches.Patch_GenerateSettings),
+                typeof(Patches.Patch_RDString));
+
+            PatchManager.RegisterLazyPatches(
+                () => scrController.instance != null,
                 typeof(Patches.Patch_Start),
                 typeof(Patches.Patch_Restart),
                 typeof(Patches.Patch_HookCallback),
                 typeof(Patches.Patch_UpdateInput),
                 typeof(Patches.Patch_CountValidKeys),
-                typeof(Patches.Patch_GenerateSettings),
-                typeof(Patches.Patch_UpdateSetting),
-                typeof(Patches.Patch_RDString));
-            PatchManager.ApplyAll();
+                typeof(Patches.Patch_UpdateSetting));
+
+            PatchManager.ApplyAllAsync();
         }
         else
         {
