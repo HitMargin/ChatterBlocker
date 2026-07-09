@@ -3,7 +3,7 @@ using UnityEngine;
 
 namespace ChatterBlocker.Patches;
 
-// ── 4. SettingsMenu.UpdateSetting → 处理 chatterBlockInterval 的读写 ──
+// ── SettingsMenu.UpdateSetting → Handles reading and writing of chatterBlockInterval ──
 [HarmonyPatch(typeof(SettingsMenu), "UpdateSetting")]
 internal static class Patch_UpdateSetting
 {

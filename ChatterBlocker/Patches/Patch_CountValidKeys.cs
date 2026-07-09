@@ -3,9 +3,9 @@ using UnityEngine;
 
 namespace ChatterBlocker.Patches;
 
-// ── 同步输入路径去抖 ──
-// CountValidKeysPressed Postfix: 遍历 GetMainPressKeys() 中 KeyCode，
-// 调 ShouldBlockSync 过滤弹键并修正 __result。
+// ── Debouncing the synchronous input path──
+//CountValidKeysPressed Postfix: loop through KeyCode in GetMainPressKeys(),
+//Adjust ShouldBlockSync to filter key presses and fix __result.
 [HarmonyPatch(typeof(scrPlayer), "CountValidKeysPressed")]
 internal static class Patch_CountValidKeys
 {

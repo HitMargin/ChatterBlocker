@@ -4,6 +4,7 @@ using UnityEngine;
 
 namespace ChatterBlocker
 {
+    // ChatterBlocker code implementation
     public static class ChatterBlocker
     {
         private static readonly Dictionary<KeyCode, long> _lastSyncKeyDownTimeMs = new();

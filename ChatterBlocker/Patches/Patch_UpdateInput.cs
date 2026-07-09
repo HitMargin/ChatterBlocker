@@ -10,13 +10,15 @@ using September;
 
 namespace ChatterBlocker.Patches;
 
+// ──Asynchronous input backup plan──
 [HarmonyPatch(typeof(scrController), "UpdateInput")]
 internal static class Patch_UpdateInput
 {
-    private static MethodInfo _shouldBlockMethod;
-    private static MethodInfo _shouldBlockKeyUpMethod;
-    private static MethodInfo _onKeyUpMethod;
-    private static FieldInfo _skyHookEventKeyField;
+    private static readonly MethodInfo _shouldBlockMethod;
+    private static readonly MethodInfo _shouldBlockKeyUpMethod;
+    private static readonly MethodInfo _onKeyUpMethod;
+    private static readonly FieldInfo _skyHookEventKeyField;
+    private static readonly FieldInfo _keyMaskField;
 
     static Patch_UpdateInput()
     {
@@ -36,6 +38,7 @@ internal static class Patch_UpdateInput
             [typeof(ushort)]
         );
         _skyHookEventKeyField = PatchManager.GetFieldInfo(typeof(SkyHookEvent), "Key");
+        _keyMaskField = PatchManager.GetFieldInfo(typeof(AsyncInputManager), "keyMask");
     }
 
     [HarmonyTranspiler]
@@ -52,7 +55,6 @@ internal static class Patch_UpdateInput
     private static IEnumerable<CodeInstruction> Transpile(IEnumerable<CodeInstruction> instructions, ILGenerator generator)
     {
         var codes = instructions.ToList();
-        var keyMaskField = typeof(AsyncInputManager).GetField("keyMask");
 
         // Locate loop head (TryDequeue)
         int loopHead = -1;
@@ -83,7 +85,7 @@ internal static class Patch_UpdateInput
         {
             if (codes[i].opcode == OpCodes.Ldsfld &&
                 codes[i].operand is FieldInfo fi &&
-                fi == keyMaskField &&
+                fi == _keyMaskField &&
                 codes[i + 2].opcode == OpCodes.Callvirt &&
                 (codes[i + 2].operand as MethodInfo)?.Name == "Contains")
             {
@@ -99,7 +101,7 @@ internal static class Patch_UpdateInput
         {
             if (codes[i].opcode == OpCodes.Ldsfld &&
                 codes[i].operand is FieldInfo fi &&
-                fi == keyMaskField &&
+                fi == _keyMaskField &&
                 codes[i + 2].opcode == OpCodes.Callvirt &&
                 (codes[i + 2].operand as MethodInfo)?.Name == "Remove")
             {

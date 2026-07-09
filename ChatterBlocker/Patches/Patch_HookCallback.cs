@@ -3,6 +3,7 @@ using SkyHook;
 
 namespace ChatterBlocker.Patches;
 
+//── Preferred option for bulletproof keys with asynchronous input──
 [HarmonyPatch(typeof(SkyHookManager), "HookCallback")]
 internal static class Patch_HookCallback
 {

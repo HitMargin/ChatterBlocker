@@ -2,6 +2,7 @@ using HarmonyLib;
 
 namespace ChatterBlocker.Patches;
 
+// Refresh
 [HarmonyPatch(typeof(scrController), "Start")]
 internal static class Patch_Start
 {

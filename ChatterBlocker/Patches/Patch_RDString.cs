@@ -4,7 +4,7 @@ using UnityEngine;
 
 namespace ChatterBlocker.Patches;
 
-// ── 5. RDString.GetWithCheck → 提供翻译文本 ──
+// ── RDString.GetWithCheck → Provides the translated text──
 [HarmonyPatch(typeof(RDString), "GetWithCheck")]
 internal static class Patch_RDString
 {

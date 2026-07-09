@@ -6,7 +6,7 @@ using UnityEngine;
 
 namespace ChatterBlocker.Patches;
 
-// ── 3. SettingsMenu.GenerateSettings → 追加去抖设置按钮 ──
+// ──SettingsMenu.GenerateSettings → Add a button for debounce settings ──
 [HarmonyPatch(typeof(SettingsMenu), "GenerateSettings")]
 internal static class Patch_GenerateSettings
 {
