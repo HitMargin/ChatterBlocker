@@ -83,6 +83,7 @@
   <ItemGroup>
     <Compile Include="ChatterBlocker.cs" />
     <Compile Include="Main.cs" />
+    <Compile Include="Patches\Patch_HookCallback.cs" />
     <Compile Include="PatchManager.cs" />
     <Compile Include="Patches\Patch_CountValidKeys.cs" />
     <Compile Include="Patches\Patch_GenerateSettings.cs" />

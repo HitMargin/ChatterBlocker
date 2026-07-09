@@ -5,7 +5,7 @@ namespace ChatterBlocker.Patches;
 
 // ── SkyHook 事件回调拦截 ──
 // 在 SkyHookManager.HookCallback 将事件派发到 KeyUpdated 前拦截。
-[HarmonyPatch(typeof(SkyHook.SkyHookManager), "HookCallback")]
+[HarmonyPatch(typeof(SkyHookManager), "HookCallback")]
 internal static class Patch_HookCallback
 {
     [HarmonyPrefix]

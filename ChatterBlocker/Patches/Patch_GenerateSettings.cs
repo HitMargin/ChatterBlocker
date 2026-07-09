@@ -39,7 +39,7 @@ internal static class Patch_GenerateSettings
         comp.name = "chatterBlockInterval";
         comp.type = "Int";
         comp.minInt = 0;
-        comp.maxInt = 9999;
+        comp.maxInt = 2000;
         comp.changeBy = 5;
         comp.changeBySmall = 1;
         comp.unit = "ms";

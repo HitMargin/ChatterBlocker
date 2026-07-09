@@ -37,6 +37,7 @@ namespace ChatterBlocker
                 PatchManager.RegisterPatches(() => true,
                     typeof(Patches.Patch_Start),
                     typeof(Patches.Patch_Restart),
+                    typeof(Patches.Patch_HookCallback),
                     typeof(Patches.Patch_UpdateInput),
                     typeof(Patches.Patch_CountValidKeys),
                     typeof(Patches.Patch_GenerateSettings),
