@@ -48,7 +48,8 @@ public static class Main
                 typeof(Patches.Patch_CountValidKeys),
                 typeof(Patches.Patch_UpdateSetting));
 
-            PatchManager.ApplyAllAsync();
+            PatchManager.ApplyAll();
+            PatchManager.ApplyLazyPatchesAsync();
         }
         else
         {
